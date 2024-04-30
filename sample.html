@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Flow Analysis with Control Flow Graph</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f4f4;
+            margin: 0;
+            padding: 10px;
+        }
+        nav {
+            background-color: #34495e;
+            padding: 10px 0;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        nav a {
+            color: white;
+            padding: 10px 20px;
+            margin: 5px;
+            text-decoration: none;
+            background-color: #2c3e50;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        nav a:hover {
+            background-color: #1abc9c;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            padding: 10px;
+        }
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-top: 20px;
+        }
+        textarea, button {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        .output {
+            background: #ececec;
+            margin: 10px 0;
+            padding: 10px;
+        }
+        #graphDisplay {
+            height: 250px; /* Adjust height as needed */
+            border: 1px solid #cccccc;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="Main.html">Project Overview</a>
+        <a href="Home.html">Home Page Analysis</a>
+    </nav>
+    <h1 align="center">Graph Coverage Data Flow</h1>
+    <div class="container">
+        <div class="card">
+            <h3>Graph Information</h3>
+            Enter graph edges (e.g., 1 2):
+            <textarea id="graphEdgesTextarea" rows="4" placeholder="Enter graph edges (e.g., 1 2)"></textarea>
+            Initial nodes (if empty, first node is used):
+            <textarea id="initialNodesTextarea" rows="2" placeholder="Enter initial node"></textarea>
+            Final nodes (separated by spaces):
+            <textarea id="finalNodesTextarea" rows="2" placeholder="Enter final nodes (separated by spaces)"></textarea>
+            <button onclick="generateGraph()">Generate Graph</button>
+            <div id="graphDisplay"></div>
+        </div>
+        <div class="card">
+            <h3>Data Flow Information</h3>
+            Enter your defs (e.g., x 1 2):
+            <textarea id="defsTextarea" rows="4" placeholder="Enter your defs (e.g., x 1 2)"></textarea>
+            Enter your uses (e.g., x 3 4):
+            <textarea id="usesTextarea" rows="4" placeholder="Enter your uses (e.g., x 3 4)"></textarea>
+            <button onclick="calculateDUPairs()">Calculate DU Pairs</button>
+            <button onclick="calculateDUPaths()">Calculate DU Paths</button>
+            <div id="duOutput" class="output"></div>
+        </div>
+        <div class="card">
+            <h3>All-Def Coverage Results</h3>
+            <button onclick="handleAllDefCoveragePaths()">Calculate All-Def Coverage Pairs</button>
+            <div id="allDefsOutput" class="output"></div>
+        </div>
+        <div class="card">
+            <h3>All-Use Coverage Results</h3>
+            <button onclick="calculateAllUsePaths()">Calculate All-Use Coverage</button>
+            <div id="allUseOutput" class="output"></div>
+        </div>
+    </div>
+
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script>
+        var globalEdges = []; // This will hold our edges globally
+
+        function updateEdges() {
+            var edgesInput = document.getElementById('graphEdgesTextarea').value;
+            globalEdges = parseEdges(edgesInput);
+        }
+
+        function generateGraph() {
+            updateEdges(); // Ensure edges are up-to-date
+            var initialNodesInput = document.getElementById('initialNodesTextarea').value;
+            var finalNodesInput = document.getElementById('finalNodesTextarea').value;
+
+            var edgesArray = globalEdges.map(edge => {
+                return {from: edge.from, to: edge.to, arrows: 'to'};
+            });
+
+            var nodesSet = new Set(edgesArray.flatMap(edge => [edge.from, edge.to]));
+            var nodesArray = Array.from(nodesSet).map(nodeId => {
+                return {id: nodeId, label: nodeId, color: 'white'};
+            });
+
+            var nodes = new vis.DataSet(nodesArray);
+            var edges = new vis.DataSet(edgesArray);
+
+            var options = {
+                nodes: {
+                    shape: 'circle',
+                    size: 15,
+                    font: { size: 16 }
+                },
+                edges: {
+                    color: { inherit: false },
+                    smooth: { type: 'continuous' }
+                },
+                physics: {
+                    enabled: true,
+                    solver: 'forceAtlas2Based',
+                }
+            };
+
+            var container = document.getElementById('graphDisplay');
+            var data = { nodes: nodes, edges: edges };
+            var network = new vis.Network(container, data, options);
+
+            if (initialNodesInput) {
+                initialNodesInput.split(' ').forEach(function(nodeId) {
+                    var updateNode = {id: nodeId, color: {background: 'lightgreen', border: 'darkgreen'}};
+                    nodes.update(updateNode);
+                });
+            }
+
+            if (finalNodesInput) {
+                finalNodesInput.split(' ').forEach(function(nodeId) {
+                    var updateNode = {id: nodeId, color: {background: 'red', border: 'darkred'}};
+                    nodes.update(updateNode);
+                });
+            }
+        }
+
+        function parseEdges(input) {
+            if (!input.trim()) return []; // Return an empty array if input is empty or just whitespace
+            return input.split('\n').map(line => {
+                var parts = line.trim().split(' ');
+                return { from: parts[0], to: parts[1] }; // Return objects for consistency
+            });
+        }
+
+        function parseDefsOrUses(input) {
+            return input.split('\n').map(line => {
+                var parts = line.trim().split(' ');
+                var variable = parts.shift(); // The first element is the variable name
+                return { variable: variable, nodes: parts };
+            });
+        }
+
+        function calculateDUPairs() {
+            var defsInput = document.getElementById('defsTextarea').value;
+            var usesInput = document.getElementById('usesTextarea').value;
+            var defs = parseDefsOrUses(defsInput);
+            var uses = parseDefsOrUses(usesInput);
+            var duPairs = calculateDUPairsLogic(defs, uses);
+            displayDUPairs(duPairs);
+        }
+
+        function calculateDUPairsLogic(defs, uses) {
+            var duPairs = [];
+            defs.forEach(def => {
+                uses.filter(use => use.variable === def.variable).forEach(use => {
+                    def.nodes.forEach(defNode => {
+                        use.nodes.forEach(useNode => {
+                            duPairs.push({ variable: def.variable, def: defNode, use: useNode });
+                        });
+                    });
+                });
+            });
+            return duPairs;
+        }
+
+        function calculateDUPaths() {
+            updateEdges(); // Ensure edges are current
+            var defsInput = document.getElementById('defsTextarea').value;
+            var usesInput = document.getElementById('usesTextarea').value;
+            var defs = parseDefsOrUses(defsInput);
+            var uses = parseDefsOrUses(usesInput);
+            var duPaths = calculateDUPathsLogic(defs, uses, globalEdges);
+            displayDUPaths(duPaths);
+        }
+
+        function calculateDUPathsLogic(defs, uses, edges) {
+            var graph = edges.reduce((acc, edge) => {
+                if (!acc[edge.from]) acc[edge.from] = [];
+                acc[edge.from].push(edge.to);
+                return acc;
+            }, {});
+
+            var duPaths = [];
+            defs.forEach(def => {
+                uses.forEach(use => {
+                    if (def.variable === use.variable) {
+                        def.nodes.forEach(defNode => {
+                            use.nodes.forEach(useNode => {
+                                var allPaths = findAllPaths(defNode, useNode, graph, []);
+                                allPaths.forEach(path => {
+                                    if (isPathValid(path, def.variable, defs)) {
+                                        duPaths.push({ variable: def.variable, path: path });
+                                    }
+                                });
+                            });
+                        });
+                    }
+                });
+            });
+
+            return duPaths;
+        }
+
+        function findAllPaths(start, end, graph, path, visited = new Set()) {
+            path.push(start);
+            visited.add(start);
+
+            var paths = [];
+            if (start === end && path.length > 1) {
+                paths.push([...path]); // Copy the path
+            } else if (graph[start]) {
+                graph[start].forEach(nextNode => {
+                    if (!visited.has(nextNode) || nextNode === end) {
+                        findAllPaths(nextNode, end, graph, path, visited).forEach(p => paths.push(p));
+                    }
+                });
+            }
+
+            path.pop();
+            visited.delete(start);
+            return paths;
+        }
+
+        function isPathValid(path, variable, defs) {
+            var defNodes = defs.filter(def => def.variable === variable).flatMap(def => def.nodes);
+            for (let i = 1; i < path.length - 1; i++) {
+                if (defNodes.includes(path[i])) {
+                    return false; // Invalid path due to redefinition
+                }
+            }
+            return true; // Valid path
+        }
+
+        function displayDUPairs(duPairs) {
+            var output = document.getElementById('duOutput');
+            output.innerHTML = "<h4>DU Pairs:</h4>";
+            duPairs.forEach(pair => {
+                output.innerHTML += `<p>${pair.variable}: (${pair.def}, ${pair.use})</p>`;
+            });
+        }
+
+        function displayDUPaths(duPaths) {
+            var output = document.getElementById('duOutput');
+            output.innerHTML += "<h4>DU Paths:</h4>";
+            duPaths.forEach(path => {
+                output.innerHTML += `<p>${path.variable}: ${path.path.join(' -> ')}</p>`;
+            });
+        }
+
+        function handleAllDefCoveragePaths() {
+            updateEdges(); // Ensure edges are current
+            var defsInput = document.getElementById('defsTextarea').value;
+            var usesInput = document.getElementById('usesTextarea').value;
+            var defs = parseDefsOrUses(defsInput);
+            var uses = parseDefsOrUses(usesInput);
+            var allCoveragePaths = calculateAllDefCoveragePaths(defs, uses, globalEdges);
+            displayAllDefCoveragePaths(allCoveragePaths);
+        }
+
+        function calculateAllDefCoveragePaths(defs, uses, edges) {
+            var graph = buildGraph(edges);
+            var allCoveragePaths = [];
+
+            defs.forEach(def => {
+                var paths = findAllCoveragePaths([def.nodes], graph, new Set(), def.variable, defs);
+                allCoveragePaths.push(...paths.map(path => ({ variable: def.variable, path: path.join(' -> ')})));
+            });
+
+            return allCoveragePaths;
+        }
+
+        function buildGraph(edges) {
+            var graph = {};
+            edges.forEach(edge => {
+                if (!graph[edge.from]) graph[edge.from] = [];
+                graph[edge.from].push(edge.to);
+            });
+            return graph;
+        }
+
+        function findAllCoveragePaths(startNodes, graph, visited, variable, defs) {
+            var paths = [];
+            startNodes.forEach(start => {
+                var path = [];
+                dfsFindPaths(start, graph, path, visited, variable, defs, paths);
+            });
+            return paths;
+        }
+
+        function dfsFindPaths(current, graph, path, visited, variable, defs, paths) {
+            path.push(current);
+            visited.add(current);
+
+            if (graph[current]) {
+                graph[current].forEach(nextNode => {
+                    if (!visited.has(nextNode)) {
+                        dfsFindPaths(nextNode, graph, path, visited, variable, defs, paths);
+                    }
+                });
+            } else {
+                // End of path without further nodes to visit
+                paths.push(path.slice());
+            }
+
+            path.pop();
+            visited.delete(current);
+        }
+
+        function displayAllDefCoveragePaths(allCoveragePaths) {
+            var output = document.getElementById('allDefsOutput');
+            output.innerHTML = "<h4>All-Def Coverage Paths:</h4>"; // Clear previous and add header
+            allCoveragePaths.forEach(item => {
+                output.innerHTML += `<p>${item.variable}: ${item.path.join(' -> ')}</p>`;
+            });
+        }
+    </script>
+</body>
+</html>

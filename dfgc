@@ -1,0 +1,219 @@
+function dfs(graph, current, variable, usageNode, visited, path, results) {
+    visited[current] = true;
+    path.push(current);
+
+    if (current === usageNode && path.length >= 2) {
+        if (!results[variable]) {
+            results[variable] = [];
+        }
+        results[variable].push([...path]);
+    } else {
+        for (let neighbor of graph[current]) {
+            if (!visited[neighbor] || neighbor === usageNode) {
+                dfs(graph, neighbor, variable, usageNode, visited, path, results);
+            }
+        }
+    }
+
+    path.pop();
+    visited[current] = false;
+}
+
+function find_DU_paths(graph, variables, usages, startNode, endNode) {
+    let results = {};
+    for (let variable in variables) {
+        results[variable] = [];
+        for (let startNode of variables[variable]) {
+            for (let usageNode of usages[variable]) {
+                let visited = {};
+                for (let node in graph) {
+                    visited[node] = false;
+                }
+                dfs(graph, startNode, variable, usageNode, visited, [], results);
+            }
+        }
+    }
+
+    console.log("Variable\tDU Paths");
+    for (let variable in results) {
+        console.log(variable, "\t\t", results[variable]);
+    }
+
+    return results;
+}
+
+function calculate_DU_pairs(graph, variables, usages) {
+    let duPairs = {};
+
+    for (let variable in variables) {
+        duPairs[variable] = [];
+        for (let definitionNode of variables[variable]) {
+            for (let usageNode of usages[variable]) {
+                duPairs[variable].push([definitionNode, usageNode]);
+            }
+        }
+    }
+
+    return duPairs;
+}
+
+function extend_path(graph, startNode, endNode, path) {
+    if (path[0] === startNode && path[path.length - 1] === endNode) {
+        return [path];
+    }
+
+    if (path.length > 1.3 * Object.keys(graph).length) {
+        return [];
+    }
+
+    let extendedPaths = [];
+
+    if (path[0] !== startNode) {
+        let currentNode = path[0];
+        let nextNodes = Object.keys(graph).filter(key => graph[key].includes(currentNode));
+        for (let nextNode of nextNodes) {
+            extendedPaths.push(...extend_path(graph, startNode, endNode, [nextNode].concat(path)));
+        }
+    }
+
+    if (path[path.length - 1] !== endNode) {
+        let currentNode = path[path.length - 1];
+        for (let nextNode of graph[currentNode]) {
+            extendedPaths.push(...extend_path(graph, startNode, endNode, path.concat(nextNode)));
+        }
+    }
+
+    return extendedPaths;
+}
+
+function extending_dupath_start_to_end(graph, startNode, endNode, duPaths) {
+    let allPaths = {};
+    let unextended = [];
+
+    for (let variable in duPaths) {
+        for (let path of duPaths[variable]) {
+            let extendedPaths = extend_path(graph, startNode, endNode, path);
+            for (let extendedPath of extendedPaths) {
+                if (!allPaths[variable]) {
+                    allPaths[variable] = [];
+                }
+                if (!allPaths[variable].includes(extendedPath)) {
+                    allPaths[variable].push([...extendedPath]);
+                }
+            }
+            if (extendedPaths.length === 0) {
+                unextended.push([...path]);
+            }
+        }
+    }
+
+    return [allPaths, unextended];
+}
+
+function calculate_all_def_coverage(duPaths, defVariables) {
+    let coveredDefNodes = {};
+    let extendedDuPathsSorted = {};
+    for (let variable in duPaths) {
+        extendedDuPathsSorted[variable] = duPaths[variable].sort((a, b) => a.length - b.length);
+        coveredDefNodes[variable] = new Set();
+    }
+
+    let allPaths = [];
+
+    for (let variable in extendedDuPathsSorted) {
+        for (let path of extendedDuPathsSorted[variable]) {
+            let nodes = new Set(path);
+            for (let node of nodes) {
+                if (defVariables[variable].includes(node)) {
+                    coveredDefNodes[variable].add(node);
+                }
+            }
+            allPaths.push([variable, path]);
+            if (coveredDefNodes[variable].size === defVariables[variable].length) {
+                break;
+            }
+        }
+    }
+
+    return allPaths;
+}
+
+function calculate_all_uses_coverage(paths, variables, usages) {
+    let coveredPaths = {};
+    let extendedDuPathsSorted = {};
+    for (let variable in paths) {
+        extendedDuPathsSorted[variable] = paths[variable].sort((a, b) => a.length - b.length);
+        coveredPaths[variable] = [];
+    }
+
+    let allPaths = [];
+
+    for (let variable in extendedDuPathsSorted) {
+        let defNodesToCover = new Set(variables[variable]);
+        let usageNodesToCover = new Set(usages[variable]);
+
+        for (let path of extendedDuPathsSorted[variable]) {
+            let defNodesCovered = new Set(path.filter(node => variables[variable].includes(node)));
+            defNodesToCover = new Set([...defNodesToCover].filter(node => !defNodesCovered.has(node)));
+
+            let usageNodesCovered = new Set(path.filter(node => usages[variable].includes(node)));
+            usageNodesToCover = new Set([...usageNodesToCover].filter(node => !usageNodesCovered.has(node)));
+
+            if (defNodesToCover.size === 0 && usageNodesToCover.size === 0) {
+                coveredPaths[variable].push([...path]);
+                allPaths.push([variable, path]);
+                break;
+            }
+        }
+    }
+
+    return allPaths;
+}
+
+// Example usage:
+let graph = {
+    1: [2],
+    2: [3, 4],
+    3: [4],
+    4: [2, 5],
+    5: []
+};
+
+let startNode = 1;
+let endNode = 5;
+
+// Define variables and their definition nodes
+let defVariables = {
+    'a': [1, 2],
+    'b': [1, 3]
+};
+
+// Define usages for each variable
+let usagesVariables = {
+    'a': [2, 4],
+    'b': [2, 3]
+};
+
+let duPairs = calculate_DU_pairs(graph, defVariables, usagesVariables);
+let duPaths = find_DU_paths(graph, defVariables, usagesVariables, startNode, endNode);
+
+let [extendedPaths, unextended] = extending_dupath_start_to_end(graph, startNode, endNode, duPaths);
+
+let defPaths = calculate_all_def_coverage(extendedPaths, defVariables);
+let usePaths = calculate_all_uses_coverage(extendedPaths, defVariables, usagesVariables);
+
+console.log("DU Pairs:");
+console.log(duPairs);
+
+console.log("DU paths");
+console.log(duPaths);
+
+console.log('unextended', unextended);
+
+console.log('extended DU paths');
+for (let variable in extendedPaths) {
+    console.log(variable, extendedPaths[variable]);
+}
+
+console.log('def paths', defPaths);
+console.log('use paths', usePaths);
